@@ -6,8 +6,8 @@ Official builds of Stagehand for macOS and Windows.
 
 | Platform | File |
 |---|---|
-| macOS (Apple Silicon & Intel) | `Stagehand-<version>-macOS.zip` |
-| Windows 10/11 (64-bit) | `Stagehand-<version>-Windows.zip` |
+| macOS (Apple Silicon & Intel) | `Stagehand-macOS.zip` |
+| Windows 10/11 (64-bit) | `Stagehand-Windows.zip` |
 
 ### First launch
 - **macOS:** unzip, drag Stagehand to Applications. Until builds are notarized, right-click → **Open** the first time.
