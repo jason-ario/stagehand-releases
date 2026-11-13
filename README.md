@@ -16,3 +16,6 @@ Official builds of Stagehand for macOS and Windows.
 Each release includes `SHA256SUMS.txt` to verify downloads.
 
 This repository holds release binaries only; the source lives in a private repo.
+
+## Publishing a version (maintainers)
+Run **Actions → Build and release → Run workflow** with a version like `v0.2.0`. It builds the private FilmStudio source for macOS and Windows and publishes the release here; re-running a version replaces its files.

@@ -1,0 +1,108 @@
+# Builds Stagehand for macOS and Windows from the private FilmStudio repo and publishes them
+# as a release here. It lives in this public repo because GitHub Actions is free for public
+# repos. Logs and the files below are public; the source is checked out, built and thrown away.
+#
+#   Run: Actions → Build and release → Run workflow → version (e.g. v0.2.0)
+#
+# Secret (this repo → Settings → Secrets and variables → Actions):
+#   SOURCE_TOKEN  fine-grained token with "Contents: Read-only" on jason-ario/FilmStudio only.
+# Publishing uses this repo's own GITHUB_TOKEN.
+#
+# Debug templates on purpose: release templates skip runtime script checks, so errors in
+# Claude's run_script code would not reach Claude (see app/scripts/script_runner.gd).
+
+name: Build and release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. v0.2.0)"
+        required: true
+      ref:
+        description: "FilmStudio branch, tag or commit to build"
+        default: main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.version }}
+
+env:
+  GODOT_VERSION: "4.5.1"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Version
+        id: v
+        run: |
+          V="${{ github.event.inputs.version }}"; V="v${V#v}"
+          echo "tag=$V" >> "$GITHUB_OUTPUT"; echo "num=${V#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out FilmStudio
+        uses: actions/checkout@v4
+        with:
+          repository: jason-ario/FilmStudio
+          ref: ${{ github.event.inputs.ref }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          path: src
+          persist-credentials: false
+
+      - name: Install Godot and the macOS/Windows export templates
+        run: |
+          set -e
+          B="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          curl -sSL -o g.zip "$B/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          curl -sSL -o t.tpz "$B/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q g.zip && sudo mv Godot_v*_linux.x86_64 /usr/local/bin/godot
+          T="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$T"
+          unzip -q -j t.tpz 'templates/macos.zip' 'templates/windows_*_x86_64*' 'templates/version.txt' -d "$T"
+          rm g.zip t.tpz
+
+      - name: Stamp version
+        working-directory: src/app
+        run: |
+          N=${{ steps.v.outputs.num }}
+          sed -i -E "s/^(application\/(short_)?version)=.*/\1=\"$N\"/; s/^(application\/(file|product)_version)=.*/\1=\"$N.0\"/" export_presets.cfg
+          grep -E "version=" export_presets.cfg
+
+      - name: Export
+        working-directory: src/app
+        run: |
+          set -e
+          godot --headless --path . --import >/dev/null 2>&1 || true
+          mkdir -p ../build/release/mac ../build/release/win
+          godot --headless --path . --export-debug "macOS" ../build/release/mac/Stagehand.zip
+          godot --headless --path . --export-debug "Windows Desktop" ../build/release/win/Stagehand.exe
+          test -s ../build/release/mac/Stagehand.zip && test -s ../build/release/win/Stagehand.exe
+
+      - name: Package
+        run: |
+          N=${{ steps.v.outputs.num }}
+          mkdir dist
+          cp src/build/release/mac/Stagehand.zip dist/Stagehand-macOS.zip
+          (cd src/build/release/win && zip -q ../../../../dist/Stagehand-Windows.zip Stagehand.exe)
+          (cd dist && sha256sum *.zip > SHA256SUMS.txt)
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          SHA=$(git -C src rev-parse --short HEAD)
+          cat > notes.md <<NOTES
+          Stagehand $TAG for macOS (Apple Silicon and Intel, macOS 11+) and Windows 10/11 (64-bit).
+
+          **First launch:** on macOS right-click Stagehand and choose **Open** (the build isn't notarized yet); on Windows choose **More info → Run anyway** if SmartScreen appears. Rendering to video needs FFmpeg; Stagehand offers to install it from Settings.
+
+          Build $SHA. Verify downloads with \`SHA256SUMS.txt\`.
+          NOTES
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target main --title "Stagehand $TAG" --notes-file notes.md
+          fi
