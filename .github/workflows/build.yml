@@ -107,7 +107,7 @@ jobs:
 
   windows-installer:
     needs: build
-    runs-on: windows-2022
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -130,7 +130,7 @@ jobs:
 
   mac-dmg:
     needs: build
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
