@@ -4,6 +4,12 @@
 #
 #   Run: Actions → Build and release → Run workflow → version (e.g. v0.2.0)
 #
+# Publishes:
+#   HyperBox-Setup.exe     Windows installer (installer/hyperbox.iss: Start menu, optional
+#                          desktop shortcut, uninstaller; per-user, no admin prompt)
+#   HyperBox-macOS.dmg     macOS disk image: drag HyperBox to Applications
+#   HyperBox-Windows.zip / HyperBox-macOS.zip   the same apps without an installer
+#
 # Secret (this repo → Settings → Secrets and variables → Actions):
 #   SOURCE_TOKEN  fine-grained token with "Contents: Read-only" on jason-ario/FilmStudio only.
 # Publishing uses this repo's own GITHUB_TOKEN.
@@ -43,6 +49,7 @@ jobs:
           echo "tag=$V" >> "$GITHUB_OUTPUT"; echo "num=${V#v}" >> "$GITHUB_OUTPUT"
 
       - name: Check out FilmStudio
+        id: checkout
         uses: actions/checkout@v4
         with:
           repository: jason-ario/FilmStudio
@@ -50,6 +57,10 @@ jobs:
           token: ${{ secrets.SOURCE_TOKEN }}
           path: src
           persist-credentials: false
+
+      - name: Source commit
+        id: sha
+        run: echo "sha=$(git -C src rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Install Godot and the macOS/Windows export templates
         run: |
@@ -80,24 +91,99 @@ jobs:
           godot --headless --path . --export-debug "Windows Desktop" ../build/release/win/HyperBox.exe
           test -s ../build/release/mac/HyperBox.zip && test -s ../build/release/win/HyperBox.exe
 
+      - name: Keep the exports for the installer jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: exports
+          path: |
+            src/build/release/mac/HyperBox.zip
+            src/build/release/win/HyperBox.exe
+          retention-days: 3
+
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      num: ${{ steps.v.outputs.num }}
+      sha: ${{ steps.sha.outputs.sha }}
+
+  windows-installer:
+    needs: build
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: exports
+          path: exports
+      - name: Build the installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          $exe = (Resolve-Path "exports/win/HyperBox.exe").Path
+          & $iscc "/DAppVersion=${{ needs.build.outputs.num }}" "/DSourceExe=$exe" "/DOutDir=$PWD\dist" installer\hyperbox.iss
+          if (-not (Test-Path dist\HyperBox-Setup.exe)) { throw "installer missing" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/HyperBox-Setup.exe
+          retention-days: 3
+
+  mac-dmg:
+    needs: build
+    runs-on: macos-14
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: exports
+          path: exports
+      - name: Build the disk image
+        run: |
+          set -e
+          mkdir -p stage dist
+          ditto -x -k exports/mac/HyperBox.zip stage
+          APP=$(find stage -maxdepth 2 -name "*.app" -type d | head -1)
+          test -n "$APP"
+          [ "$(basename "$APP")" = "HyperBox.app" ] || mv "$APP" stage/HyperBox.app
+          ln -s /Applications stage/Applications
+          hdiutil create -volname "HyperBox" -srcfolder stage -fs HFS+ -format UDZO -ov dist/HyperBox-macOS.dmg
+          hdiutil verify dist/HyperBox-macOS.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-dmg
+          path: dist/HyperBox-macOS.dmg
+          retention-days: 3
+
+  publish:
+    needs: [build, windows-installer, mac-dmg]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: got
       - name: Package
         run: |
-          N=${{ steps.v.outputs.num }}
           mkdir dist
-          cp src/build/release/mac/HyperBox.zip dist/HyperBox-macOS.zip
-          (cd src/build/release/win && zip -q ../../../../dist/HyperBox-Windows.zip HyperBox.exe)
-          (cd dist && sha256sum *.zip > SHA256SUMS.txt)
+          cp got/windows-installer/HyperBox-Setup.exe dist/
+          cp got/mac-dmg/HyperBox-macOS.dmg dist/
+          cp got/exports/mac/HyperBox.zip dist/HyperBox-macOS.zip
+          (cd got/exports/win && zip -q ../../../dist/HyperBox-Windows.zip HyperBox.exe)
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          ls -la dist
 
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.v.outputs.tag }}
+          TAG: ${{ needs.build.outputs.tag }}
+          SHA: ${{ needs.build.outputs.sha }}
         run: |
-          SHA=$(git -C src rev-parse --short HEAD)
           cat > notes.md <<NOTES
-          HyperBox $TAG for macOS (Apple Silicon and Intel, macOS 11+) and Windows 10/11 (64-bit).
+          HyperBox $TAG for Windows 10/11 (64-bit) and macOS 11+ (Apple Silicon and Intel).
 
-          **First launch:** on macOS right-click HyperBox and choose **Open** (the build isn't notarized yet); on Windows choose **More info → Run anyway** if SmartScreen appears. Rendering to video needs FFmpeg; HyperBox offers to install it from Settings.
+          **Windows:** run **HyperBox-Setup.exe**. If SmartScreen appears, choose **More info → Run anyway** (the installer isn't code-signed yet). It installs for your account, adds HyperBox to the Start menu and can be removed from Settings → Apps.
+
+          **macOS:** open **HyperBox-macOS.dmg** and drag HyperBox to Applications. The first time, right-click HyperBox and choose **Open** (the app isn't notarized yet).
+
+          The .zip files are the same apps without an installer. Rendering to video needs FFmpeg; HyperBox offers to install it the first time you render.
 
           Build $SHA. Verify downloads with \`SHA256SUMS.txt\`.
           NOTES
