@@ -1,0 +1,25 @@
+{
+    "name": "HyperBox.Exporter.Editor",
+    "rootNamespace": "HyperBox.Export",
+    "references": [
+        "UnityGLTFScripts",
+        "GLTFSerialization"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "org.khronos.unitygltf",
+            "expression": "2.17.0",
+            "define": "HYPERBOX_UNITYGLTF"
+        }
+    ],
+    "noEngineReferences": false
+}

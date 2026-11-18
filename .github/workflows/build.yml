@@ -153,6 +153,15 @@ jobs:
           path: dist/HyperBox-macOS.dmg
           retention-days: 3
 
+  # Keeps the public copy of the Unity exporter (unity/com.hyperbox.exporter) up to date.
+  # Nothing waits for it, so a failure here doesn't hold up the release.
+  unity-exporter:
+    uses: ./.github/workflows/sync-exporter.yml
+    with:
+      ref: ${{ github.event.inputs.ref }}
+    secrets:
+      SOURCE_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+
   publish:
     needs: [build, windows-installer, mac-dmg]
     runs-on: ubuntu-24.04
