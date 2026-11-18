@@ -1,0 +1,9 @@
+{
+  "name": "com.hyperbox.exporter",
+  "displayName": "HyperBox Exporter",
+  "version": "0.3.1",
+  "unity": "2021.3",
+  "description": "Exports Unity scenes, characters and animation clips to HyperBox: a ready-to-open .film.json plus GLB models, with Humanoid clips baked onto the skeleton. Needs UnityGLTF (org.khronos.unitygltf).",
+  "keywords": ["hyperbox", "gltf", "export", "film"],
+  "author": { "name": "HyperBox" }
+}

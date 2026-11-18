@@ -1,0 +1,73 @@
+# Copies the HyperBox Exporter for Unity (unity/com.hyperbox.exporter) from the private
+# FilmStudio repo into this public repo, so Unity users can add it by git URL without a
+# GitHub sign-in:
+#
+#   https://github.com/jason-ario/stagehand-releases.git?path=/unity/com.hyperbox.exporter
+#
+#   Run: Actions → Sync Unity exporter → Run workflow. "Build and release" also runs it.
+#
+# The copy here is overwritten each time; edit the package in FilmStudio.
+# Uses the same SOURCE_TOKEN secret as build.yml.
+
+name: Sync Unity exporter
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "FilmStudio branch, tag or commit to copy from"
+        default: main
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: main
+    secrets:
+      SOURCE_TOKEN:
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-exporter
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Check out FilmStudio
+        uses: actions/checkout@v4
+        with:
+          repository: jason-ario/FilmStudio
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          path: src
+          persist-credentials: false
+
+      - name: Copy the package
+        id: copy
+        run: |
+          set -e
+          test -f src/unity/com.hyperbox.exporter/package.json
+          SHA=$(git -C src rev-parse --short HEAD)
+          VER=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' src/unity/com.hyperbox.exporter/package.json)
+          rm -rf unity/com.hyperbox.exporter
+          mkdir -p unity
+          cp -r src/unity/com.hyperbox.exporter unity/
+          rm -rf src
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"; echo "ver=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Commit if it changed
+        run: |
+          set -e
+          git add -A unity
+          if git diff --cached --quiet; then echo "Exporter is already up to date."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Unity exporter ${{ steps.copy.outputs.ver }} (FilmStudio ${{ steps.copy.outputs.sha }})"
+          git push origin HEAD:main
