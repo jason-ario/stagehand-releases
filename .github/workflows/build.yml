@@ -192,3 +192,12 @@ jobs:
           else
             gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target main --title "HyperBox $TAG" --notes-file notes.md
           fi
+
+  # Keeps the public copy of the Unity exporter (unity/com.hyperbox.exporter) in step with
+  # the source this release was built from.
+  unity-exporter:
+    uses: ./.github/workflows/sync-unity-exporter.yml
+    with:
+      ref: ${{ github.event.inputs.ref }}
+    secrets:
+      SOURCE_TOKEN: ${{ secrets.SOURCE_TOKEN }}

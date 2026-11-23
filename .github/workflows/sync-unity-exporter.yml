@@ -1,0 +1,84 @@
+# Copies the HyperBox Unity exporter (unity/com.hyperbox.exporter) from the private FilmStudio
+# repo into this public repo, so Unity users can install it by git URL without GitHub access:
+#
+#   https://github.com/jason-ario/stagehand-releases.git?path=/unity/com.hyperbox.exporter
+#
+# Each package version also gets a tag, exporter-v<version> (e.g. exporter-v0.4.0), so projects
+# can pin one by adding #exporter-v0.4.0 to the URL.
+#
+# Edit the package in FilmStudio, never here: this workflow overwrites the copy.
+#
+#   Run: Actions → Sync Unity exporter → Run workflow. Build and release also runs it.
+#
+# Secret: SOURCE_TOKEN (same read-only token Build and release uses).
+
+name: Sync Unity exporter
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "FilmStudio branch, tag or commit to copy from"
+        default: main
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: main
+    secrets:
+      SOURCE_TOKEN:
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-unity-exporter
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out this repo
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: dist
+
+      - name: Check out FilmStudio
+        uses: actions/checkout@v4
+        with:
+          repository: jason-ario/FilmStudio
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          path: src
+          persist-credentials: false
+
+      - name: Copy the package
+        run: |
+          set -e
+          test -f src/unity/com.hyperbox.exporter/package.json
+          mkdir -p dist/unity
+          rsync -a --delete src/unity/com.hyperbox.exporter/ dist/unity/com.hyperbox.exporter/
+
+      - name: Commit, push and tag
+        working-directory: dist
+        run: |
+          set -e
+          SHA=$(git -C ../src rev-parse --short HEAD)
+          VER=$(jq -r .version unity/com.hyperbox.exporter/package.json)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A unity
+          if git diff --cached --quiet; then
+            echo "Exporter already up to date (v$VER)."
+          else
+            git commit -m "Sync Unity exporter v$VER from FilmStudio $SHA"
+            git push origin HEAD:main
+          fi
+          TAG="exporter-v$VER"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists; raise version in package.json to tag a new one."
+          else
+            git tag "$TAG" && git push origin "$TAG"
+          fi
